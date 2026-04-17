@@ -1,0 +1,171 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "When_a_new_email_arrives_(V2)": {
+                "splitOn": "@triggerBody()?['value']",
+                "type": "ApiConnectionNotification",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['outlook']['connectionId']"
+                        }
+                    },
+                    "fetch": {
+                        "pathTemplate": {
+                            "template": "/v2/Mail/OnNewEmail"
+                        },
+                        "method": "get",
+                        "queries": {
+                            "importance": "Any",
+                            "fetchOnlyWithAttachment": false,
+                            "includeAttachments": false,
+                            "folderPath": "Inbox"
+                        }
+                    },
+                    "subscribe": {
+                        "body": {
+                            "NotificationUrl": "@listCallbackUrl()"
+                        },
+                        "pathTemplate": {
+                            "template": "/MailSubscriptionPoke/$subscriptions"
+                        },
+                        "method": "post",
+                        "queries": {
+                            "importance": "Any",
+                            "fetchOnlyWithAttachment": false,
+                            "folderPath": "Inbox"
+                        }
+                    }
+                }
+            }
+        },
+        "actions": {
+            "Creates_a_completion_for_the_chat_message": {
+                "runAfter": {
+                    "Html_to_text": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['azureopenai']['connectionId']"
+                        }
+                    },
+                    "method": "post",
+                    "body": {
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "You are an expert IT and SecOps Support AI. Analyze the IT ticket provided. 1. Categorize it (e.g., Hardware, Software, Network, Access/Identity, Security Incident). 2. Determine Urgency (Low, Medium, High, Critical). 3. Provide one concise troubleshooting or mitigation step. Format your response strictly as: Category: [result]\nUrgency: [result]\nAction: [result]"
+                            },
+                            {
+                                "role": "user",
+                                "content": "@body('Html_to_text')"
+                            }
+                        ],
+                        "temperature": 1,
+                        "top_p": 1,
+                        "stream": false,
+                        "stop": null,
+                        "max_tokens": 4096,
+                        "presence_penalty": 0,
+                        "frequency_penalty": 0,
+                        "n": 1,
+                        "seed": 0,
+                        "logprobs": false,
+                        "response_format": {
+                            "type": "text"
+                        }
+                    },
+                    "path": "/2024-02-15-preview/deployments/@{encodeURIComponent('gpt-4o')}/chat/completions",
+                    "queries": {
+                        "api-version": "2024-06-01"
+                    }
+                }
+            },
+            "For_each": {
+                "foreach": "@body('Creates_a_completion_for_the_chat_message')['choices']",
+                "actions": {
+                    "Post_message_(V2)": {
+                        "type": "ApiConnection",
+                        "inputs": {
+                            "host": {
+                                "connection": {
+                                    "name": "@parameters('$connections')['slack']['connectionId']"
+                                }
+                            },
+                            "method": "post",
+                            "body": {
+                                "channel": "[CHANNEL ID REDACTED]",
+                                "text": "🚨 NEW HELP DESK TICKET 🚨\nFROM: @{triggerBody()?['From']}\nSUBJECT: @{triggerBody()?['Subject']}\n\n🤖 AI Triage Analysis:\n@{item()?['message']?['content']}\n\n📝 Original Request:\n@{body('Html_to_text')}"
+                            },
+                            "path": "/v2/chat.postMessage"
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Creates_a_completion_for_the_chat_message": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Foreach"
+            },
+            "Html_to_text": {
+                "runAfter": {},
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['conversionservice']['connectionId']"
+                        }
+                    },
+                    "method": "post",
+                    "body": "<p class=\"editor-paragraph\">@{triggerBody()?['Body']}</p>",
+                    "path": "/html2text"
+                }
+            }
+        },
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "type": "Object",
+            "value": {
+                "outlook": {
+                    "id": "/subscriptions/[SUBSCRIPTION REDACTED]/providers/Microsoft.Web/locations/eastus/managedApis/outlook",
+                    "connectionId": "/subscriptions/[SUBSCRIPTION REDACTED]/resourceGroups/[RESOURCE GROUP REDACTED]/providers/Microsoft.Web/connections/outlook",
+                    "connectionName": "outlook",
+                    "connectionProperties": {}
+                },
+                "azureopenai": {
+                    "id": "/subscriptions/[SUBSCRIPTION REDACTED]/providers/Microsoft.Web/locations/eastus/managedApis/azureopenai",
+                    "connectionId": "/subscriptions/[SUBSCRIPTION REDACTED]/resourceGroups/[RESOURCE GROUP REDACTED]/providers/Microsoft.Web/connections/azureopenai",
+                    "connectionName": "azureopenai",
+                    "connectionProperties": {}
+                },
+                "slack": {
+                    "id": "/subscriptions/[SUBSCRIPTION REDACTED]/providers/Microsoft.Web/locations/eastus/managedApis/slack",
+                    "connectionId": "/subscriptions/[SUBSCRIPTION REDACTED]/resourceGroups/[RESOURCE GROUP REDACTED]/providers/Microsoft.Web/connections/slack",
+                    "connectionName": "slack",
+                    "connectionProperties": {}
+                },
+                "conversionservice": {
+                    "id": "/subscriptions/[SUBSCRIPTION REDACTED]/providers/Microsoft.Web/locations/eastus/managedApis/conversionservice",
+                    "connectionId": "/subscriptions/[SUBSCRIPTION REDACTED]/resourceGroups/[RESOURCE GROUP REDACTED]/providers/Microsoft.Web/connections/conversionservice",
+                    "connectionName": "conversionservice",
+                    "connectionProperties": {}
+                }
+            }
+        }
+    }
+}
